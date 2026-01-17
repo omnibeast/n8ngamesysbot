@@ -1,0 +1,738 @@
+﻿{
+  "name": "02 - Telegram Callback Router (Game + Actions + Admin)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ]
+      },
+      "id": "tgCbTrigger",
+      "name": "Telegram Trigger (callback_query)",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [ 240, 260 ],
+      "credentials": {
+        "telegramApi": {
+          "name": "ScarletGames"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cb = $json.callback_query;\nconst data = cb.data || '';\nconst chat_id = cb.message?.chat?.id;\nconst cb_id = cb.id;\nconst from_id = cb.from?.id;\nconst parts = data.split('|');\nreturn [{ json: { data, parts, chat_id, cb_id, from_id } }];"
+      },
+      "id": "parseCb",
+      "name": "Parse Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 470, 260 ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "operation": "startsWith",
+              "value1": "={{$json.data}}",
+              "value2": "GAME|"
+            },
+            {
+              "operation": "startsWith",
+              "value1": "={{$json.data}}",
+              "value2": "ACT|"
+            },
+            {
+              "operation": "startsWith",
+              "value1": "={{$json.data}}",
+              "value2": "ADM|"
+            }
+          ]
+        }
+      },
+      "id": "switchType",
+      "name": "Switch Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [ 700, 260 ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "documentId": "1coaOS8uj8w4SLoiXN8XhQJyjvXR1Zvm2",
+        "sheetName": "State",
+        "key": "tg_chat_id",
+        "value": "={{$json.chat_id}}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tg_chat_id": "={{$json.chat_id}}",
+            "step": "CHOOSE_ACTION",
+            "game_id": "={{$json.parts[1]}}",
+            "temp_username": "",
+            "temp_amount": "",
+            "last_request_id": ""
+          }
+        }
+      },
+      "id": "gsUpsertStateGame",
+      "name": "GS: State = CHOOSE_ACTION",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [ 950, 120 ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "GameBot_System_Template.xlsx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chat_id}}",
+        "text": "Choose an option:",
+        "additionalFields": {
+          "replyMarkup": "={\"inline_keyboard\":[[{\"text\":\"Create New Account\",\"callback_data\":\"ACT|CREATE\"}],[{\"text\":\"Load Points\",\"callback_data\":\"ACT|LOAD\"}],[{\"text\":\"Withdraw Points\",\"callback_data\":\"ACT|WITHDRAW\"}]]}"
+        }
+      },
+      "id": "tgSendActions",
+      "name": "TG: Send Action Buttons",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [ 1180, 120 ],
+      "credentials": {
+        "telegramApi": {
+          "name": "ScarletGames"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "lookup",
+        "documentId": "1coaOS8uj8w4SLoiXN8XhQJyjvXR1Zvm2",
+        "sheetName": "State",
+        "lookupColumn": "tg_chat_id",
+        "lookupValue": "={{$json.chat_id}}"
+      },
+      "id": "gsLookupState",
+      "name": "GS: Lookup State",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [ 950, 260 ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "GameBot_System_Template.xlsx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const action = $json.parts[1];\nreturn [{ json: { action, chat_id: $json.chat_id } }];"
+      },
+      "id": "parseAction",
+      "name": "Parse Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 1180, 260 ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "operation": "equals",
+              "value2": "CREATE"
+            }
+          ]
+        }
+      },
+      "id": "ifCreate",
+      "name": "IF CREATE",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [ 1390, 260 ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": "1coaOS8uj8w4SLoiXN8XhQJyjvXR1Zvm2",
+        "sheetName": "Accounts"
+      },
+      "id": "gsReadAccounts",
+      "name": "GS: Read Accounts",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [ 1600, 160 ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "GameBot_System_Template.xlsx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $node[\"GS: Lookup State\"].json;\nconst gameId = state.game_id;\nconst accounts = items.map(i => i.json);\nconst available = accounts.find(a => a.game_id === gameId && String(a.status).toUpperCase() === 'AVAILABLE');\nif (!available) {\n  return [{ json: { noAccount: true, game_id: gameId } }];\n}\nreturn [{ json: { noAccount: false, game_id: gameId, username: available.username, password: available.password } }];"
+      },
+      "id": "pickAccount",
+      "name": "Pick First Available Account",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 1820, 160 ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.noAccount}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "id": "ifNoAccount",
+      "name": "IF No Account",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [ 2030, 160 ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Parse Callback\"].json.chat_id}}",
+        "text": "Sorry, no accounts are available for this game right now. Please try later."
+      },
+      "id": "tgNoAccount",
+      "name": "TG: No Account Available",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [ 2240, 80 ],
+      "credentials": {
+        "telegramApi": {
+          "name": "ScarletGames"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": "1coaOS8uj8w4SLoiXN8XhQJyjvXR1Zvm2",
+        "sheetName": "Accounts",
+        "key": "username",
+        "value": "={{$json.username}}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "ASSIGNED",
+            "assigned_to_tg": "={{$node[\"Parse Callback\"].json.chat_id}}",
+            "assigned_at": "={{new Date().toISOString()}}"
+          }
+        }
+      },
+      "id": "gsAssignAccount",
+      "name": "GS: Assign Account",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [ 2240, 200 ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "GameBot_System_Template.xlsx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "documentId": "1coaOS8uj8w4SLoiXN8XhQJyjvXR1Zvm2",
+        "sheetName": "State",
+        "key": "tg_chat_id",
+        "value": "={{$node[\"Parse Callback\"].json.chat_id}}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tg_chat_id": "={{$node[\"Parse Callback\"].json.chat_id}}",
+            "step": "CHOOSE_ACTION",
+            "game_id": "={{$json.game_id}}",
+            "temp_username": "={{$json.username}}",
+            "temp_amount": "",
+            "last_request_id": ""
+          }
+        }
+      },
+      "id": "gsStoreAssignedInState",
+      "name": "GS: Store Assigned Username in State",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [ 2460, 200 ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "GameBot_System_Template.xlsx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Parse Callback\"].json.chat_id}}",
+        "text": "={{`✅ Account created for ${$json.game_id}\\n\\nUsername: ${$json.username}\\nPassword: ${$json.password}\\n\\nKeep this safe.`}}"
+      },
+      "id": "tgSendCreds",
+      "name": "TG: Send Credentials",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [ 2680, 200 ],
+      "credentials": {
+        "telegramApi": {
+          "name": "ScarletGames"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "operation": "equals",
+              "value2": "LOAD"
+            }
+          ]
+        }
+      },
+      "id": "ifLoad",
+      "name": "IF LOAD",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [ 1600, 320 ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "documentId": "1coaOS8uj8w4SLoiXN8XhQJyjvXR1Zvm2",
+        "sheetName": "State",
+        "key": "tg_chat_id",
+        "value": "={{$json.chat_id}}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tg_chat_id": "={{$json.chat_id}}",
+            "step": "LOAD_WAIT_USERNAME",
+            "game_id": "={{$node[\"GS: Lookup State\"].json.game_id}}",
+            "temp_username": "",
+            "temp_amount": "",
+            "last_request_id": ""
+          }
+        }
+      },
+      "id": "gsSetLoadStep",
+      "name": "GS: State = LOAD_WAIT_USERNAME",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [ 1820, 320 ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "GameBot_System_Template.xlsx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chat_id}}",
+        "text": "Please send your game username for LOAD:"
+      },
+      "id": "tgAskLoadUser",
+      "name": "TG: Ask Load Username",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [ 2030, 320 ],
+      "credentials": {
+        "telegramApi": {
+          "name": "ScarletGames"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "operation": "equals",
+              "value2": "WITHDRAW"
+            }
+          ]
+        }
+      },
+      "id": "ifWithdraw",
+      "name": "IF WITHDRAW",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [ 1600, 400 ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "documentId": "1coaOS8uj8w4SLoiXN8XhQJyjvXR1Zvm2",
+        "sheetName": "State",
+        "key": "tg_chat_id",
+        "value": "={{$json.chat_id}}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tg_chat_id": "={{$json.chat_id}}",
+            "step": "WD_WAIT_USERNAME",
+            "game_id": "={{$node[\"GS: Lookup State\"].json.game_id}}",
+            "temp_username": "",
+            "temp_amount": "",
+            "last_request_id": ""
+          }
+        }
+      },
+      "id": "gsSetWdStep",
+      "name": "GS: State = WD_WAIT_USERNAME",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [ 1820, 400 ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "GameBot_System_Template.xlsx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chat_id}}",
+        "text": "Please send your game username for WITHDRAW:"
+      },
+      "id": "tgAskWdUser",
+      "name": "TG: Ask Withdraw Username",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [ 2030, 400 ],
+      "credentials": {
+        "telegramApi": {
+          "name": "ScarletGames"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const parts = $json.parts;\nconst action = parts[1];\nconst request_id = parts[2];\nreturn [{ json: { action, request_id, admin_from: $json.from_id, admin_chat_id: $json.chat_id } }];"
+      },
+      "id": "parseAdmin",
+      "name": "Parse Admin Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 950, 520 ]
+    },
+    {
+      "parameters": {
+        "operation": "lookup",
+        "documentId": "1coaOS8uj8w4SLoiXN8XhQJyjvXR1Zvm2",
+        "sheetName": "Requests",
+        "lookupColumn": "request_id",
+        "lookupValue": "={{$json.request_id}}"
+      },
+      "id": "gsLookupReq",
+      "name": "GS: Lookup Request",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [ 1180, 520 ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "GameBot_System_Template.xlsx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": "1coaOS8uj8w4SLoiXN8XhQJyjvXR1Zvm2",
+        "sheetName": "Requests",
+        "key": "request_id",
+        "value": "={{$node[\"Parse Admin Callback\"].json.request_id}}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{$node[\"Parse Admin Callback\"].json.action === 'APPROVE' ? 'APPROVED' : 'REJECTED'}}",
+            "approved_by": "={{$node[\"Parse Admin Callback\"].json.admin_from}}",
+            "approved_at": "={{new Date().toISOString()}}"
+          }
+        }
+      },
+      "id": "gsUpdateReq",
+      "name": "GS: Update Request Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [ 1410, 520 ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "GameBot_System_Template.xlsx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"GS: Lookup Request\"].json.tg_chat_id}}",
+        "text": "={{$node[\"Parse Admin Callback\"].json.action === 'APPROVE' ? '✅ Approved. Processing now (15–20 mins).' : '❌ Rejected. Please contact support.'}}"
+      },
+      "id": "tgNotifyUser",
+      "name": "TG: Notify Player (Approval Result)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [ 1640, 520 ],
+      "credentials": {
+        "telegramApi": {
+          "name": "ScarletGames"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger (callback_query)": {
+      "main": [
+        [
+          {
+            "node": "Parse Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Callback": {
+      "main": [
+        [
+          {
+            "node": "Switch Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Type": {
+      "main": [
+        [
+          {
+            "node": "GS: State = CHOOSE_ACTION",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GS: Lookup State",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Admin Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS: State = CHOOSE_ACTION": {
+      "main": [
+        [
+          {
+            "node": "TG: Send Action Buttons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS: Lookup State": {
+      "main": [
+        [
+          {
+            "node": "Parse Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Action": {
+      "main": [
+        [
+          {
+            "node": "IF CREATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF CREATE": {
+      "main": [
+        [
+          {
+            "node": "GS: Read Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF LOAD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS: Read Accounts": {
+      "main": [
+        [
+          {
+            "node": "Pick First Available Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick First Available Account": {
+      "main": [
+        [
+          {
+            "node": "IF No Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF No Account": {
+      "main": [
+        [
+          {
+            "node": "TG: No Account Available",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GS: Assign Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS: Assign Account": {
+      "main": [
+        [
+          {
+            "node": "GS: Store Assigned Username in State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS: Store Assigned Username in State": {
+      "main": [
+        [
+          {
+            "node": "TG: Send Credentials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF LOAD": {
+      "main": [
+        [
+          {
+            "node": "GS: State = LOAD_WAIT_USERNAME",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF WITHDRAW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS: State = LOAD_WAIT_USERNAME": {
+      "main": [
+        [
+          {
+            "node": "TG: Ask Load Username",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF WITHDRAW": {
+      "main": [
+        [
+          {
+            "node": "GS: State = WD_WAIT_USERNAME",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "GS: State = WD_WAIT_USERNAME": {
+      "main": [
+        [
+          {
+            "node": "TG: Ask Withdraw Username",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Admin Callback": {
+      "main": [
+        [
+          {
+            "node": "GS: Lookup Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS: Lookup Request": {
+      "main": [
+        [
+          {
+            "node": "GS: Update Request Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS: Update Request Status": {
+      "main": [
+        [
+          {
+            "node": "TG: Notify Player (Approval Result)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}
