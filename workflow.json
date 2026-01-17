@@ -1,0 +1,135 @@
+{
+  "name": "01 - Telegram Start (Show Games Buttons)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ]
+      },
+      "id": "tgTrigger",
+      "name": "Telegram Trigger (message)",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [ 240, 220 ],
+      "credentials": {
+        "telegramApi": {
+          "name": "ScarletGames"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.message.text}}",
+              "operation": "startsWith",
+              "value2": "/start"
+            }
+          ]
+        }
+      },
+      "id": "ifStart",
+      "name": "IF /start",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [ 470, 220 ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": "1coaOS8uj8w4SLoiXN8XhQJyjvXR1Zvm2",
+        "sheetName": "Games"
+      },
+      "id": "gsReadGames",
+      "name": "GS: Read Games",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [ 700, 220 ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "GameBot_System_Template.xlsx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const games = items.map(i => i.json).filter(g => String(g.active).toUpperCase() === 'TRUE');\nconst keyboard = games.map(g => ([{ text: g.game_name, callback_data: `GAME|${g.game_id}` }]));\nreturn [{ json: { keyboard } }];"
+      },
+      "id": "buildKB",
+      "name": "Build Inline Keyboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 930, 220 ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.message.chat.id}}",
+        "text": "Welcome! Choose a game:",
+        "additionalFields": {
+          "replyMarkup": "={\"inline_keyboard\": {{$node[\"Build Inline Keyboard\"].json.keyboard}} }"
+        }
+      },
+      "id": "tgSendGames",
+      "name": "TG: Send Games Buttons",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [ 1160, 220 ],
+      "credentials": {
+        "telegramApi": {
+          "name": "ScarletGames"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger (message)": {
+      "main": [
+        [
+          {
+            "node": "IF /start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF /start": {
+      "main": [
+        [
+          {
+            "node": "GS: Read Games",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "GS: Read Games": {
+      "main": [
+        [
+          {
+            "node": "Build Inline Keyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Inline Keyboard": {
+      "main": [
+        [
+          {
+            "node": "TG: Send Games Buttons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}
